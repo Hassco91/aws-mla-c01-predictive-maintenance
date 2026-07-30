@@ -101,11 +101,19 @@ The endpoint was deleted after validation to avoid ongoing hosting costs. The fu
 
 **Implementation note:** SageMaker's managed XGBoost container requires the model artifact in native XGBoost format (`booster.save_model()`). An initial deployment attempt using a `joblib`-serialized scikit-learn wrapper failed the container health check — a subtle but important distinction when serving models through AWS-managed inference containers.
 
-### Phase 4 — Monitoring & Security (Planned)
 
-- SageMaker Model Monitor for data drift and model quality drift detection
-- SageMaker Clarify for bias and explainability monitoring
-- CloudWatch alarms on endpoint latency and error rate
+### Phase 4 — Monitoring & Security (Attempted, blocked by AWS platform change)
+
+A full Model Monitor workflow was implemented: data capture was enabled on the endpoint, five test inferences were sent to generate captured request/response data, and a baseline job (`suggest_baseline`) was successfully run against the training data to produce `statistics.json` and `constraints.json`.
+
+**Finding:** As of July 30, 2026, AWS moved 10 SageMaker AI features — including Model Monitor, Clarify, Ground Truth, and Debugger — into maintenance mode for new AWS accounts. `CreateDataQualityJobDefinition` (the API underlying `create_monitoring_schedule`) now returns a `ValidationException` for new customers: *"This operation is in maintenance mode and is not available to new customers."* This is a live platform change, not a bug in this project's code — existing AWS accounts are unaffected.
+
+**Practical impact:** the monitoring schedule itself could not be created on this (new) account. The baseline artifacts and data capture logs remain in S3 as evidence of a correctly implemented workflow up to the platform-imposed boundary. For a production environment on an established account, the same code would create a working hourly monitoring schedule.
+
+**Notes for future reference:** instance-type quota constraints were also encountered during this phase — `ml.t3.medium` (4GB RAM) was insufficient for the Spark-based baseline analysis (job killed by OOM), while `ml.t3.xlarge` (16GB RAM) succeeded. `ml.m5.large` and `ml.c5.xlarge` had zero account-level quota for processing jobs.
+
+- SageMaker Clarify for bias and explainability monitoring — also affected by the same maintenance-mode change
+- CloudWatch alarms on endpoint latency and error rate — remains available and would be the primary supported monitoring path going forward
 
 ### Phase 5 — Pipeline Automation (Planned)
 
