@@ -1,3 +1,16 @@
+### Phase 3 — Deployment (Done)
+
+The winning model (XGBoost + physics-based features) was deployed to a SageMaker real-time inference endpoint (`ml.t2.medium`) and validated with live inference requests:
+
+| Input scenario | Predicted failure probability | Decision |
+|---|---|---|
+| Normal operation (low torque, no tool wear) | 0.0051 | OK |
+| Critical state (high torque, 220 min tool wear) | 0.9791 | FAILURE |
+
+The endpoint was deleted after validation to avoid ongoing hosting costs. The full deployment workflow — cleanup, deploy, inference test, teardown — is reproducible via `src/deploy.py`.
+
+**Implementation note:** SageMaker's managed XGBoost container requires the model artifact in native XGBoost format (`booster.save_model()`). An initial deployment attempt using a `joblib`-serialized scikit-learn wrapper failed the container health check — a subtle but important distinction when serving models through AWS-managed inference containers.
+
 # Predictive Maintenance on AWS — MLA-C01 Portfolio Project
 
 An end-to-end machine learning pipeline for predictive maintenance, built on AWS as a hands-on portfolio project while preparing for the **AWS Certified Machine Learning Engineer – Associate (MLA-C01)** certification.
@@ -12,7 +25,7 @@ The project deliberately covers all four MLA-C01 exam domains end to end:
 |---|---|
 | Data Preparation for ML | S3 ingestion, SageMaker Data Wrangler, data quality analysis, target leakage detection |
 | ML Model Development | AutoML baseline (SageMaker Autopilot), manual XGBoost, hyperparameter tuning, feature engineering |
-| Deployment & Orchestration | SageMaker real-time inference endpoint |
+| Deployment & Orchestration | SageMaker real-time inference endpoint, reproducible deployment script |
 | Monitoring, Maintenance & Security | Encrypted/versioned S3, scoped IAM roles, SageMaker Model Monitor (planned) |
 
 ## Architecture
@@ -75,9 +88,18 @@ Adding these features and re-running the hyperparameter search produced the best
 
 **Key takeaway:** AutoML (Autopilot) provided a strong, fast baseline by searching across algorithms and hyperparameters automatically. However, domain-informed feature engineering — encoding known physical failure mechanisms directly as features — outperformed both the AutoML baseline and extensive hyperparameter tuning on raw features. This demonstrates that automated tooling and subject-matter expertise are complementary, not substitutes for one another.
 
-### Phase 3 — Deployment (In Progress)
+### Phase 3 — Deployment (Done)
 
-The winning model (XGBoost + physics-based features) is being deployed to a SageMaker real-time inference endpoint for online prediction serving.
+The winning model (XGBoost + physics-based features) was deployed to a SageMaker real-time inference endpoint (`ml.t2.medium`) and validated with live inference requests:
+
+| Input scenario | Predicted failure probability | Decision |
+|---|---|---|
+| Normal operation (low torque, no tool wear) | 0.0051 | OK |
+| Critical state (high torque, 220 min tool wear) | 0.9791 | FAILURE |
+
+The endpoint was deleted after validation to avoid ongoing hosting costs. The full deployment workflow — cleanup, deploy, inference test, teardown — is reproducible via `src/deploy.py`.
+
+**Implementation note:** SageMaker's managed XGBoost container requires the model artifact in native XGBoost format (`booster.save_model()`). An initial deployment attempt using a `joblib`-serialized scikit-learn wrapper failed the container health check — a subtle but important distinction when serving models through AWS-managed inference containers.
 
 ### Phase 4 — Monitoring & Security (Planned)
 
@@ -94,8 +116,8 @@ The manual workflow above will be re-implemented as a SageMaker Pipeline (proces
 1. **Always audit for target leakage before trusting a model's metrics** — a near-perfect score is a red flag, not a success.
 2. **The theoretically correct class weight is not always the practically optimal one** — empirical sweeps matter.
 3. **Domain knowledge, encoded as features, can outperform both AutoML and hyperparameter tuning** — the biggest single performance gain in this project (F1 +0.14) came from three physics-based features, not from model tuning.
+4. **Model serialization format matters for deployment** — a scikit-learn-pickled model can fail silently against a managed inference container that expects the framework's native format.
 
 ## Author
 
 Built by Hassco as part of AWS Certified Machine Learning Engineer – Associate (MLA-C01) exam preparation and portfolio development for the German job market.
-
