@@ -115,17 +115,24 @@ A full Model Monitor workflow was implemented: data capture was enabled on the e
 - SageMaker Clarify for bias and explainability monitoring — also affected by the same maintenance-mode change
 - CloudWatch alarms on endpoint latency and error rate — remains available and would be the primary supported monitoring path going forward
 
-### Phase 5 — Pipeline Automation (Planned)
+### Phase 5 - Automation with SageMaker Pipelines
 
-The manual workflow above will be re-implemented as a SageMaker Pipeline (processing → training → evaluation → conditional registration → deployment) to demonstrate a reproducible, CI/CD-ready MLOps workflow.
+The final phase automates the entire workflow (Phases 1-3) into a single, repeatable SageMaker Pipeline: data preprocessing, model training, evaluation, a conditional gate on model quality, and conditional registration in the SageMaker Model Registry.
 
-## Key Learnings
+**Pipeline steps:**
 
-1. **Always audit for target leakage before trusting a model's metrics** — a near-perfect score is a red flag, not a success.
-2. **The theoretically correct class weight is not always the practically optimal one** — empirical sweeps matter.
-3. **Domain knowledge, encoded as features, can outperform both AutoML and hyperparameter tuning** — the biggest single performance gain in this project (F1 +0.14) came from three physics-based features, not from model tuning.
-4. **Model serialization format matters for deployment** — a scikit-learn-pickled model can fail silently against a managed inference container that expects the framework's native format.
+1. **PreprocessPredictiveMaintenanceData** (ProcessingStep) - splits raw data into train/validation/test sets and applies the physics-based feature engineering developed in Phase 2.
+2. **TrainXGBoostModel** (ProcessingStep) - trains the XGBoost model using the same hyperparameters validated manually in Phase 2.
+3. **EvaluateModel** (ProcessingStep) - computes F1, precision, and recall on the held-out test set and writes a SageMaker-compatible evaluation report.
+4. **CheckF1ScoreThreshold** (ConditionStep) - only proceeds to registration if F1 >= 0.75.
+5. **RegisterPredictiveMaintenanceModel** (ModelStep) - registers the approved model in the Model Registry under the `predictive-maintenance-models` package group, attaching the evaluation metrics for traceability.
 
-## Author
+**Findings and technical challenges (real-world lessons):**
 
-Built by Hassco as part of AWS Certified Machine Learning Engineer – Associate (MLA-C01) exam preparation and portfolio development for the German job market.
+- **Training Job service quota was 0 for every instance type tested** (`ml.m5.large`, `ml.t3.xlarge`, `ml.m4.xlarge`), while the same instance types had available quota for Processing Jobs. Rather than wait days for an AWS Service Quota increase, the training step was re-implemented as a `ProcessingStep` running the XGBoost training script directly inside the same XGBoost container - a common and pragmatic workaround when Training Job quota is unavailable on a fresh AWS account. This distinction between Processing Job quota and Training Job quota (two separate quota pools) is an important, easy-to-miss operational detail on new AWS accounts.
+- **`RegisterModel` requires a `PipelineSession`, not a standard `Session`.** When building the registration step via `model.register(...)` and `step_args=`, the underlying SDK call must be deferred until pipeline execution time rather than executed eagerly. Using a regular `sagemaker.Session()` caused a `TypeError: Pipeline variables do not support __str__ operation`, because the SDK attempted to serialize an unresolved pipeline placeholder value immediately. Switching to `PipelineSession()` resolved this.
+- **Model data path required exact object addressing.** A `ProcessingStep`'s S3 output URI points to a folder, not a specific file. `CreateModelPackage` requires `ModelDataUrl` to reference the exact `model.tar.gz` object. Since the path itself depends on a pipeline-time value, plain string concatenation was not possible; the `Join` pipeline function was used to build the exact path (`.../model.tar.gz`) at execution time.
+
+**Result:** The pipeline runs end-to-end without manual intervention. Final execution status: `Succeeded` for all five steps. The trained model was registered in the Model Registry with `ModelApprovalStatus: PendingManualApproval`.
+
+**Files:** `src/preprocessing.py`, `src/train_processing.py`, `src/evaluation.py`, `src/pipeline.py`
